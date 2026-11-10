@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tiesto · Macetas autorregantes y tarros con rosca</title>
+  <meta name="description" content="Diseña macetas autorregantes y tarros con tapa de rosca en dos piezas y dos colores, sin soportes, y descárgalos en STL o 3MF para imprimir en 3D.">
+  <meta name="theme-color" content="#E7E8E3">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M5 5h22l-1.6 11H6.6z' fill='%23E3B23C'/%3E%3Cpath d='M6.8 17.5h18.4L23.6 28H8.4z' fill='%2324503F'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <div class="app">
+    <main class="stage" id="stage">
+      <canvas id="view" aria-label="Vista 3D del diseño. Arrastra para girar, rueda o pellizco para acercar, doble clic para recentrar."></canvas>
+
+      <header class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M5 5h22l-1.6 11H6.6z" fill="var(--c-pot)"/>
+          <path d="M6.8 17.5h18.4L23.6 28H8.4z" fill="var(--c-res)"/>
+        </svg>
+        <div>
+          <h1>Tiesto</h1>
+          <p>Macetas autorregantes y tarros con rosca</p>
+        </div>
+      </header>
+
+      <div class="viewbar">
+        <div class="seg seg-view" role="radiogroup" aria-label="Vista">
+          <button type="button" role="radio" data-view="assembled" aria-checked="true">Montada</button>
+          <button type="button" role="radio" data-view="exploded" aria-checked="false">Despiece</button>
+          <button type="button" role="radio" data-view="section" aria-checked="false">Corte</button>
+          <button type="button" role="radio" data-view="bed" aria-checked="false">En la cama</button>
+        </div>
+        <div class="tools">
+          <label class="chip-select" title="Boquilla de la impresora: cambia la altura de capa y el ancho de línea que se dibujan">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3h8v5l-2.5 4h-3L6 8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12v2.2h2V12M10 16.2v1.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span class="lbl">Boquilla</span>
+            <select id="nozzleSel" aria-label="Boquilla"></select>
+          </label>
+          <button type="button" class="chip-toggle hq" id="hqBtn" aria-pressed="false" aria-label="Máxima calidad" title="Recalcula la geometría con una fila por cada capa de impresión y la dibuja con supermuestreo y sombras finas">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5l1.9 4.6 4.6 1.9-4.6 1.9L10 15.5l-1.9-4.6L3.5 9l4.6-1.9z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M15.5 13.5l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor"/></svg>
+            <span class="lbl">Máxima calidad</span>
+          </button>
+          <button type="button" class="chip-toggle" id="snapBtn" aria-label="Guardar imagen" title="Descarga un PNG de la vista actual a 8K (8192 px de lado largo)">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="5" width="15" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10.5" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 5l1.2-2h3.6L13 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            <span class="lbl">Guardar imagen</span>
+          </button>
+          <button type="button" class="chip-toggle" id="overhangBtn" aria-pressed="false" aria-label="Voladizos" title="Marca en rojo las caras que necesitarían soporte">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15h14M5 15l4-8h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="lbl">Voladizos</span>
+          </button>
+        </div>
+        <p class="hint" id="hint">Arrastra para girar · doble clic para recentrar</p>
+      </div>
+
+      <section class="ticket" aria-live="polite" aria-label="Resumen de impresión">
+        <div class="ticket-row">
+          <span class="spool" style="--c: var(--c-pot)" aria-hidden="true"></span>
+          <span class="t-name" id="tPotName">Maceta</span>
+          <span class="t-dim" id="tPotDim">—</span>
+          <span class="t-g" id="tPotG">—</span>
+        </div>
+        <div class="ticket-row">
+          <span class="spool" style="--c: var(--c-res)" aria-hidden="true"></span>
+          <span class="t-name" id="tResName">Reservorio</span>
+          <span class="t-dim" id="tResDim">—</span>
+          <span class="t-g" id="tResG">—</span>
+        </div>
+        <div class="ticket-foot">
+          <span><b id="tWater">—</b> <span id="tWaterLbl">de agua</span></span>
+          <span><b id="tSoil">—</b> <span id="tSoilLbl">de sustrato</span></span>
+          <span class="busy" id="busy" hidden>Calculando…</span>
+        </div>
+      </section>
+
+      <ul class="checks" id="checks" aria-label="Comprobaciones de impresión"></ul>
+
+    </main>
+
+    <aside class="panel" aria-label="Diseño">
+      <div class="panel-head">
+        <div class="presets" id="presets" role="list" aria-label="Diseños de partida"></div>
+        <div class="head-actions">
+          <button type="button" class="icon-btn" id="undoBtn" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5 4 8.5 7.5 12M4.5 8.5H12a4 4 0 0 1 0 8H9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="icon-btn" id="redoBtn" title="Rehacer (Ctrl+Mayús+Z)" aria-label="Rehacer" disabled>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 16 8.5 12.5 12M15.5 8.5H8a4 4 0 0 0 0 8h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="dice-btn" id="randomBtn">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="7.3" cy="7.3" r="1.2" fill="currentColor"/><circle cx="12.7" cy="12.7" r="1.2" fill="currentColor"/><circle cx="10" cy="10" r="1.2" fill="currentColor"/></svg>
+            Sorpréndeme
+          </button>
+        </div>
+      </div>
+
+      <form class="controls" id="controls" autocomplete="off" onsubmit="return false"></form>
+
+      <footer class="export">
+        <button type="button" class="btn-primary" id="dlZip">
+          <span class="dual" aria-hidden="true"></span>
+          <span class="btn-label">Descargar las dos piezas</span>
+          <span class="btn-sub">.zip · STL</span>
+        </button>
+        <div class="export-row">
+          <button type="button" class="btn-ghost" data-export="pot"><span class="spool sm" style="--c: var(--c-pot)" aria-hidden="true"></span><span><span id="xPotName">Maceta</span> .stl</span></button>
+          <button type="button" class="btn-ghost" data-export="res"><span class="spool sm" style="--c: var(--c-res)" aria-hidden="true"></span><span><span id="xResName">Reservorio</span> .stl</span></button>
+          <button type="button" class="btn-ghost" data-export="3mf">Proyecto .3mf</button>
+        </div>
+        <button type="button" class="btn-coupon" data-export="coupon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5c0-1.9 3.6-3.5 8-3.5s8 1.6 8 3.5v4c0 1.9-3.6 3.5-8 3.5s-8-1.6-8-3.5z" fill="none" stroke="var(--c-res)" stroke-width="1.8"/><path d="M7.5 7.2V5.8c0-1.3 2-2.3 4.5-2.3s4.5 1 4.5 2.3v1.4" fill="none" stroke="var(--c-pot)" stroke-width="1.8" stroke-linecap="round"/><path d="M4 9.5c0 1.9 3.6 3.5 8 3.5s8-1.6 8-3.5" fill="none" stroke="var(--c-res)" stroke-width="1.8"/></svg>
+          <span class="coupon-text"><b id="couponTitle">Probeta de encaje</b><small id="couponInfo">Solo la zona del cono, para probar el ajuste</small></span>
+          <span class="btn-sub">.zip</span>
+        </button>
+        <div class="export-row quiet">
+          <button type="button" class="btn-link" id="shareBtn">Copiar enlace</button>
+          <button type="button" class="btn-link" id="saveBtn">Guardar diseño</button>
+          <span class="export-q">
+            <label for="qualitySel">Detalle</label>
+            <select id="qualitySel">
+              <option value="export">Normal</option>
+              <option value="high">Alto</option>
+              <option value="max">Máximo</option>
+            </select>
+          </span>
+        </div>
+      </footer>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

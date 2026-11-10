@@ -1,0 +1,24 @@
+# Publica la carpeta web/ en GitHub Pages (rama gh-pages) cada vez que cambia en main.
+name: Publicar en GitHub Pages
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Subir web/ a la rama gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git push origin "$(git subtree split --prefix web HEAD):refs/heads/gh-pages" --force

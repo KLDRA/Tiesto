@@ -118,7 +118,7 @@ En **Qué diseñas → Tarro con tapa** la herramienta genera un tarro y su tapa
 
 - La tapa sigue la forma y el patrón del tarro, así que cerrado parece un solo volumen partido en dos colores. Por dentro lleva la rosca hembra; el tarro acaba en un hombro plano y un cuello circular con la rosca macho.
 - **Tapa y rosca:** altura de la tapa (la rosca ocupa casi toda), paso y número de entradas. Cada vuelta baja paso × entradas.
-- La tapa se cierra en el sentido de las agujas del reloj y hace tope en el hombro. Si la forma no es redonda, queda alineada con el tarro justo al apretar; si en tu impresora se pasa de largo, baja la «Holgura de la rosca» 0,05 mm, y si no llega, súbela.
+- La tapa se cierra en el sentido de las agujas del reloj hasta un **tope de giro** al final de la rosca: ahí queda apoyada en el hombro y con la forma y el patrón alineados con los del tarro, sin depender de la tolerancia de la impresora. Si se atasca antes del tope, sube la «Holgura de la rosca» 0,05–0,1 mm. Con n entradas la tapa puede entrar en n posiciones: si la forma y el patrón no se repiten n veces por vuelta (por ejemplo, 15 nervios en un tarro cuadrado), la rosca se hace con menos entradas y la ficha lo avisa.
 - Sin soportes: el tarro se imprime de pie y la tapa **boca abajo**, apoyada en su cara plana. Los STL ya salen así, y la vista «En la cama» lo enseña.
 - La ficha muestra la capacidad en ml y el diámetro de la boca.
 - No hay modo vaso, borde decorado ni riego en los tarros. La altura mínima baja a 30 mm y el ancho a 30 mm.

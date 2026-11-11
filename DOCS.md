@@ -17,6 +17,7 @@ Tiesto/
 ├── LICENSE                 licencia MIT
 ├── tools/
 │   └── comprobar-mallas.mjs  prueba de mallas estancas, incluida la probeta (Node)
+│   └── generar-filamentos.mjs  regenera web/js/filaments.js desde SpoolmanDB
 └── web/                    ← lo que se publica
     ├── index.html          estructura de la página y mapa de importación de "three"
     ├── css/app.css         todo el estilo
@@ -27,6 +28,7 @@ Tiesto/
     │   ├── geometry.js     motor de geometría (maceta + reservorio, tarro + tapa), cifras y avisos
     │   ├── shapes.js       secciones horizontales (círculo, polígono…) como tabla polar
     │   ├── patterns.js     patrones de superficie y sus miniaturas
+    │   ├── filaments.js    colores de filamentos por marca (generado, no editar)
     │   └── export.js       STL binario, 3MF y ZIP sin compresión
     └── vendor/three/       three.module.min.js, OrbitControls, RoomEnvironment
 ```
@@ -399,7 +401,9 @@ Cada patrón es una función `f(u, v, shape, count, seed) → [0, 1]`:
 - Cuello: `rN = min(O_in sobre la tapa) − (thH + cDil + 0,4)`, así la tapa conserva al menos pared + 0,4 mm por fuera de la raíz de la hembra. Boca `rNi = rN − wall`.
 - **Tarro:** el perfil exterior de cada columna es cuerpo (0 → zs, con patrón) + hombro plano (5 puntos a z = zs) + cuello con el diente macho (zs → zT). Por dentro, `min(O_in, rNi + k·(zs − 0,4·wall − z))`: bajo el hombro el interior se cierra en cono a pendiente k, macizo, sin techo plano. `across` se rellena a mano en el hombro para que se pinte con perímetros.
 - **Tapa:** se genera directamente en su postura de impresión, boca abajo: `z' = H − z`, `θ' = −θ` (media vuelta sobre X, no un espejo, para no cambiar el sentido de la rosca). Exterior O + patrón; interior, la rosca hembra maciza hasta la pared. `info.flip = H` le dice al visor que la gire (`potFlip`) en las vistas montada, despiece y corte; en la cama y en los STL va tal cual. El uniforme `uFlip` invierte «arriba» en el sombreado de capas.
-- **Rosca:** mismos dientes trapeciales que la de la maceta (flancos a pendiente k, hélice a derechas). La hembra es la macho dilatada `cDil` y **subida `drop = cDil/k`**: con la tapa en el hombro, los flancos de apriete ya se tocan justo en el ángulo en que las formas coinciden. Comprobado numéricamente: hueco radial mínimo 0 y escalón 0 en la costura.
+- **Rosca:** mismos dientes trapeciales que la de la maceta (flancos a pendiente k, hélice a derechas). La hembra es la macho dilatada `cDil` y subida `drop − slack`, con `slack = min(drop, 0,75·holgura)`: con la tapa en el hombro y alineada, al flanco de apriete le queda `slack` en vertical.
+- **Tope de giro (alineación):** la primera versión alineaba «por apriete» (hembra subida `drop` entera: los flancos tocaban justo en el ángulo bueno). Impresa, no cuadraba: el ángulo de apriete depende de lo que engorde cada superficie (0,1 mm en z ≈ 4,5° con 8 mm por vuelta). Ahora `crestZ(θ, z) = z − paso·(fract(fase) − 0,44)` da la altura del centro de la cresta del filete que pasa por cada punto, que crece a lo largo de la hélice; el filete macho se corta en `crestZ = zStop` (el último diente cabe entero bajo `thTop`) y el surco de la tapa se ciega a partir de ahí. Las dos caras son rampas paralelas de 0,6 mm de arco (más anchas que una columna, para que no dependan de `N`), con 0,4·holgura de arco de giro libre. Comprobado con las mallas: con la tapa en el hombro el giro se para a 0° ± 1 columna en `export` y `max`.
+- **Entradas (`jarStarts`):** con n entradas la tapa entra en n posiciones, así que se usa el mayor n ≤ `threadStarts` para el que girar 1/n de vuelta deja igual la sección (LUT) y los dos patrones; si baja, se avisa. Ejemplo: 4 lados y 15 nervios → 1 entrada; con 16 nervios, 2 o 4.
 - Probeta: `coupon.neck`, el cuello solo como aro; el zip añade la tapa real.
 - `info`: `kind`, `totalH`, `flip`, `capacityMl`, `mouth`, `thread`; `zpb = 0` y `zTopMax = lidHeight` para que el despiece y el encuadre funcionen sin casos especiales.
 - En la interfaz (`app.js`): `isJar`, `isVase` (el vaso se ignora en tarros), `partNames()` para los rótulos, secciones con `when` y título dinámico, y mínimos de deslizador dinámicos.
@@ -410,7 +414,7 @@ Cada patrón es una función `f(u, v, shape, count, seed) → [0, 1]`:
 node tools/comprobar-mallas.mjs
 ```
 
-Genera dieciocho diseños muy distintos (cuatro con rosca, uno de base estrecha, cuatro en modo vaso con boquillas de 0,2 a 1,0 y cinco tarros) en calidad `preview` y `export`, con sus dos piezas y los aros de la probeta: 118 mallas. De cada malla indica las aristas no compartidas por exactamente dos triángulos (`nonManifoldEdges`), las aristas mal orientadas (`badOrient`) y los triángulos degenerados. También indica las partes que empiezan en el aire de cada pieza (`islas`) y las columnas cuyo perfil interior vuelve a subir, lo que deja un compartimento cerrado donde no llega el agua o la tierra. Las aristas, las islas y los compartimentos deben ser **0**. Algún triángulo degenerado suelto en `export` lo producen puntos colineales en la triangulación del suelo, y los laminadores lo ignoran. La prueba también muestra el agua, el sustrato y las cotas del encaje.
+Genera diecinueve diseños muy distintos (cuatro con rosca, uno de base estrecha, cuatro en modo vaso con boquillas de 0,2 a 1,0 y seis tarros) en calidad `preview` y `export`, con sus dos piezas y los aros de la probeta: 124 mallas. De cada malla indica las aristas no compartidas por exactamente dos triángulos (`nonManifoldEdges`), las aristas mal orientadas (`badOrient`) y los triángulos degenerados. También indica las partes que empiezan en el aire de cada pieza (`islas`) y las columnas cuyo perfil interior vuelve a subir, lo que deja un compartimento cerrado donde no llega el agua o la tierra. Las aristas, las islas y los compartimentos deben ser **0**. Algún triángulo degenerado suelto en `export` lo producen puntos colineales en la triangulación del suelo, y los laminadores lo ignoran. La prueba también muestra el agua, el sustrato y las cotas del encaje.
 
 Para revisar la interfaz sin pantalla sirve Chromium de Playwright. Para que funcione WebGL hay que lanzarlo con `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`.
 
@@ -426,7 +430,7 @@ Para revisar la interfaz sin pantalla sirve Chromium de Playwright. Para que fun
 - En modo vaso el cono de la maceta asienta en un aro de una sola línea: es firme, pero menos que el encaje macizo del modo normal.
 - La vista en máxima calidad (hasta 6 M triángulos, render a 2× y sombras de 4096 px) está pensada para un ordenador con tarjeta gráfica. Solo se ha probado con renderizado por software (SwiftShader), donde va lenta. La detección de equipos limitados (táctil o `deviceMemory < 4`) es aproximada.
 
-- Tarros: la alineación de una tapa no redonda depende de la tolerancia real de la impresora (0,1 mm de error en z son unos 4–5° con 8 mm por vuelta). No son herméticos. La tapa es maciza entre la rosca y la forma exterior, así que en formas con esquinas pesa más. No se ha impreso ninguno todavía.
+- Tarros: la tapa no «aprieta»: se para en el tope de giro con algo de holgura vertical (≤ 0,75·holgura), y si la impresora engorda más de ~0,1 mm por cara puede atascarse antes del tope (subir la holgura). No son herméticos. La tapa es maciza entre la rosca y la forma exterior, así que en formas con esquinas pesa más. 
 
 ## Historial
 
@@ -442,3 +446,6 @@ Para revisar la interfaz sin pantalla sirve Chromium de Playwright. Para que fun
 | 2026-11-02 | La ranura detrás de la hembra era un compartimento aislado (en bases estrechas, enorme). La rosca va pegada a la pared a su altura y la hembra es maciza. La prueba detecta compartimentos cerrados |
 | 2026-11-10 | Vista «igual que impreso»: cordones, escalones y líneas por píxel según boquilla (0,2–1,0) y altura de capa. Máxima calidad con una fila por capa (hasta 6 M triángulos), imagen a 8K por teselas, descarga «Máximo». Modo vaso y cinco diseños de partida en vaso |
 | 2026-11-10 | Tarros con tapa de rosca (`kind: 'jar'`): tapa que continúa la forma, generada boca abajo; cuello circular con rosca macho; probeta del cuello; seis diseños de partida |
+| 2026-11-11 | Primer tarro impreso: tapa y tarro no cuadraban. Tope de giro en la rosca en lugar de alinear por apriete, y entradas limitadas a la simetría de forma y patrón |
+| 2026-11-11 | Colores de filamentos reales: selector de marca y línea en «Colores» (16 marcas, 1.414 colores de SpoolmanDB, MIT). La elección de marca se guarda en `localStorage` (`tiesto.filamento`); el diseño y el enlace siguen llevando solo el hex |
+| 2026-11-11 | «Qué colores pegan»: `harmony()` y `suggestColors()` en app.js puntúan una pareja en OKLCH (diferencia de tono a 0/30/120/150/180°, más flojo a 60/90°; neutros y tonos apagados van con todo si cambia la claridad). Cada pieza enseña hasta 10 colores de la paleta a la vista que van con el de la otra, y hay un veredicto de la pareja actual |

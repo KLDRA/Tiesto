@@ -52,6 +52,7 @@ const variants = [
   ['tarro-flor-giro', { kind: 'jar', shape: 'flower', twist: 80, height: 160, width: 110, lidHeight: 35, pot: { ...DEFAULTS.pot, type: 'hex', amp: 3 }, res: { ...DEFAULTS.res, type: 'bricks', amp: 3 } }],
   ['tarro-cuenco-0.8', { kind: 'jar', shape: 'squircle', profile: 'bowl', baseScale: 0.5, bulge: 0.15, height: 120, width: 150, nozzle: 0.8, threadPitch: 8, threadStarts: 4, lidHeight: 30 }],
   ['tarro-triangulo-invertido', { kind: 'jar', shape: 'poly', sides: 3, rounding: 0.05, twist: -120, height: 140, width: 120, vase: true, pot: { ...DEFAULTS.pot, type: 'diamonds', amp: 4, invert: true }, linkPatterns: true }],
+  ['tarro-prueba-15-nervios', { kind: 'jar', shape: 'poly', sides: 4, rounding: 0.68, twist: 0, height: 30, width: 52, baseScale: 0.8, profile: 'flare', bulge: -0.15, lidHeight: 18, threadPitch: 4, linkPatterns: true, pot: { ...DEFAULTS.pot, type: 'ribs', amp: 1.4, count: 15, period: 11, shape: 0.49 } }],
   ['rosca-cubo-baja', { joint: 'thread', shape: 'squircle', squareness: 7, resHeight: 40, threadStarts: 3 }],
 ];
 for (const [n, o] of variants) {

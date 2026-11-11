@@ -885,9 +885,44 @@ function buildWater(N, fT, level, zpb, riRes, seatPot) {
 // tapa se genera ya boca abajo, apoyada en su cara plana, que es como se
 // imprime (`info.flip` dice a qué altura darle la vuelta para verla montada).
 //
-// La tapa hace tope en el hombro. La rosca hembra va subida lo que da la
-// holgura para que, al apretar, los flancos toquen justo cuando la forma de la
-// tapa coincide con la del tarro.
+// Alineación de la tapa: no depende de lo que apriete la rosca (eso cambia con
+// la tolerancia real de cada impresora), sino de un tope de giro. Cada filete
+// macho acaba en una cara recta cerca de la boca, y el surco de la tapa está
+// cegado a partir de ahí: las dos caras chocan justo cuando la forma y el
+// patrón de la tapa coinciden con los del tarro. La tapa llega al hombro unos
+// grados antes y a los flancos les queda un poco de holgura, para que una
+// impresora que engorde las paredes no se atasque antes del tope.
+//
+// Entradas de la rosca que caben sin descuadrar: con n entradas la tapa puede
+// entrar en n posiciones, así que girar 1/n de vuelta tiene que dejar igual la
+// sección y los dos patrones. Devuelve el mayor n ≤ `want` que lo cumple.
+function jarStarts(P, want) {
+  const LUT = buildSectionLUT(P), ML = LUT.length;
+  const lut = (th) => {
+    let x = (th / TAU) * ML;
+    x = ((x % ML) + ML) % ML;
+    const i = Math.floor(x), f = x - i;
+    return LUT[i] * (1 - f) + LUT[(i + 1) % ML] * f;
+  };
+  const ctx = { rref: P.width / 2, twist: () => 0 };
+  const pats = [makePattern(P.pot, ctx), makePattern(P.linkPatterns ? P.pot : P.res, ctx)].filter(Boolean);
+  const S = 240;
+  for (let n = want; n > 1; n--) {
+    const a = TAU / n;
+    let ok = true;
+    for (let i = 0; i < S && ok; i++) {
+      const th = (TAU * (i + 0.37)) / S;
+      if (Math.abs(lut(th + a) - lut(th)) > 0.08) ok = false;
+      for (const f of pats) for (let q = 0; q < 6 && ok; q++) {
+        const z = (P.height * (q + 0.5)) / 6;
+        if (Math.abs(f(th + a, z) - f(th, z)) > 0.03) ok = false;
+      }
+    }
+    if (ok) return n;
+  }
+  return 1;
+}
+
 function buildJar(P, qname) {
   const Q = resolveQuality(qname, P);
   const N = Q.N, K = Q.K, H = P.height;
@@ -903,7 +938,9 @@ function buildJar(P, qname) {
   const zT = H - fT - gapTop; // boca del tarro
 
   // Rosca trapecial (mismos dientes que la de la maceta)
-  const thP = P.threadPitch, thS = Math.max(1, Math.round(P.threadStarts));
+  const thP = P.threadPitch, thS0 = Math.max(1, Math.round(P.threadStarts));
+  const thS = jarStarts(P, thS0);
+  if (thS < thS0) warnings.push({ level: 'info', text: `Con esta forma y este patrón la tapa solo cuadra en ${thS === 1 ? 'una posición' : thS + ' posiciones'}: la rosca se hace de ${thS} ${thS === 1 ? 'entrada' : 'entradas'} para que no pueda entrar descuadrada.` });
   const thFl = 0.38, thH = k * thFl * thP;
   const cDil = c * Math.sqrt(1 + k * k);
   const drop = cDil / k;
@@ -927,9 +964,29 @@ function buildJar(P, qname) {
     return 0;
   };
   const phase = (th, z) => z / thP - (thS * th) / TAU; // a derechas: se cierra girando en el sentido del reloj
-  const male = (th, z) => (z < thBot || z > thTop ? 0 : Math.max(0, Math.min(thH * tooth(phase(th, z)), k * (z - thBot), k * (thTop - z))));
-  // hembra: subida `drop`; en la boca de la tapa se abre para que entre sola
-  const female = (th, z) => Math.max(rF0 + thH * tooth(phase(th, z - drop)), rF0 + thH - k * (z - zs));
+  // Altura del centro de la cresta del filete que pasa por (θ, z): crece a lo
+  // largo de la hélice, así que «zc > cota» corta el filete en una cara recta
+  // (un plano radial), igual para todas las entradas.
+  const thMid = thFl + (0.5 - thFl) / 2;
+  const crestZ = (th, z) => { const u = phase(th, z); return z - thP * (u - Math.floor(u) - thMid); };
+  const lead = thP * thS;
+  const zStop = thTop - thP * (2 * thFl + 0.5 - thFl - thMid); // el último diente cabe entero bajo thTop
+  // Las caras del tope son rampas de `stopW` mm de arco (casi rectas, pero más
+  // anchas que una columna de la malla para que salgan iguales en cualquier
+  // calidad). `arcZ` pasa mm de arco en el cuello a altura a lo largo de la hélice.
+  const stopW = 0.6, arcZ = lead / (TAU * rN), zRamp = stopW * arcZ;
+  const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+  const male = (th, z) => (z < thBot || z > thTop ? 0 : Math.max(0, Math.min(thH * tooth(phase(th, z)) * clamp01((zStop - crestZ(th, z)) / zRamp), k * (z - thBot), k * (thTop - z))));
+  // Hembra: con la tapa en el hombro y contra el tope, al flanco que aprieta le
+  // queda `slack` de holgura en vertical (subida `drop` entera, tocaría). El
+  // surco se ciega pasado el final del filete macho: ese es el tope de giro.
+  // En la boca de la tapa se abre para que entre sola.
+  const slack = Math.min(drop, 0.75 * c), fUp = drop - slack;
+  // Las dos rampas son paralelas: con el mismo corte quedarían a `cDil` en
+  // radial, que son stopW·cDil/thH de giro libre. Se deja 0,4 × holgura de arco,
+  // lo que suelen engordar las dos caras al imprimirse.
+  const stopOff = (0.4 * c - (stopW * cDil) / thH) * arcZ;
+  const female = (th, z) => Math.max(rF0 + thH * tooth(phase(th, z - fUp)) * clamp01((zStop + stopOff - crestZ(th, z - fUp)) / zRamp), rF0 + thH - k * (z - zs));
 
   const ctx = { rref: P.width / 2, twist };
   const lidPat = makePattern(P.pot, ctx);
@@ -1041,7 +1098,7 @@ function buildJar(P, qname) {
     res: { ...jarStats.info, height: zT, fits: fits(jarStats.info, zT) },
     waterMl: 0, soilL: 0, capacityMl: cap / 1000, mouth: rNi * 2,
     level: 0, zpb: 0, za: zs, rIns: rN, rf: 0, zTopMin: lidH, zTopMax: lidH, footDia: 0, holes: 0, wick: null,
-    thread: { pitch: thP, starts: thS, depth: thH, length: thLen, turns: thLen / (thP * thS) },
+    thread: { pitch: thP, starts: thS, depth: thH, length: thLen, turns: thLen / (thP * thS), stop: true },
     print: {
       ...pr, vase: false, wall: t,
       perimeters: Math.max(1, Math.round(t / pr.line)),

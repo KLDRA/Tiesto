@@ -2,8 +2,68 @@ import { Viewer } from './viewer.js';
 import { DEFAULTS, BED, NOZZLES, printOf } from './geometry.js';
 import { SHAPES, sectionPath } from './shapes.js';
 import { PATTERNS, PATTERN_BY_ID, drawPatternThumb } from './patterns.js';
+import { FILAMENT_BRANDS } from './filaments.js';
 
 const $ = (id) => document.getElementById(id);
+
+// ── Armonía de colores ─────────────────────────────────────────────────────
+// Reglas clásicas de la rueda de color, medidas en OKLCH (un espacio donde las
+// distancias se parecen a lo que ve el ojo): dos colores «pegan» si sus tonos
+// están a 0° (tono sobre tono), ~30° (análogos), ~120° (tríada), ~150°
+// (complementario partido) o ~180° (complementarios), o si uno es neutro o
+// apagado. A 60° y 90° también hay relación, pero más floja.
+function oklch(hex) {
+  const n = parseInt(hex.replace('#', '').slice(0, 6), 16);
+  const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const r = lin((n >> 16) & 255), g = lin((n >> 8) & 255), b = lin(n & 255);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const q = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * q;
+  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * q;
+  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * q;
+  return { L, C: Math.hypot(A, B), h: (Math.atan2(B, A) * 180) / Math.PI, A, B };
+}
+const HARMONIES = [[0, 'tono sobre tono', 1], [30, 'análogos', 1], [60, 'tonos vecinos', 0.74], [90, 'tétrada', 0.78], [120, 'tríada', 1], [150, 'complementario partido', 1], [180, 'complementarios', 1]];
+// Devuelve { score 0..1, rel } para la pareja de colores a + b.
+function harmony(hexA, hexB) {
+  const a = oklch(hexA), b = oklch(hexB);
+  const dL = Math.abs(a.L - b.L), dE = Math.hypot(a.L - b.L, a.A - b.A, a.B - b.B);
+  if (dE < 0.05) return { score: 0, rel: 'casi el mismo color' };
+  const sep = Math.min(1, dE / 0.22); // que se distingan las dos piezas
+  const nA = a.C < 0.035, nB = b.C < 0.035;
+  if (nA && nB) return { score: 0.55 + 0.4 * Math.min(1, dL / 0.5), rel: 'neutros' };
+  if (nA || nB) return { score: (0.7 + 0.14 * Math.min(1, dL / 0.4) + 0.12 * Math.min(1, Math.max(a.C, b.C) / 0.16)) * sep, rel: 'neutro + color' };
+  let d = Math.abs(a.h - b.h) % 360;
+  if (d > 180) d = 360 - d;
+  let best = 0, rel = '';
+  // un color apagado u oscuro hace casi de neutro: va con cualquier tono si
+  // la claridad cambia (mostaza + verde pino, terracota + azul marino…)
+  const mC = Math.min(a.C, b.C);
+  if (mC < 0.1) { best = 0.85 - (0.2 * (mC - 0.035)) / 0.065 + 0.1 * Math.min(1, dL / 0.35) - 0.25 * Math.max(0, 1 - dL / 0.15); rel = 'color + tono apagado'; }
+  for (const [t, name, w] of HARMONIES) {
+    let v = w * Math.exp(-((d - t) ** 2) / (2 * 13 * 13));
+    if (t === 0) v *= Math.min(1, dL / 0.22); // mismo tono: que cambie la claridad
+    if (v > best) { best = v; rel = name; }
+  }
+  // dos colores muy chillones a la vez cansan: se premia que uno mande
+  const loud = Math.min(a.C, b.C) > 0.17 ? 0.9 : 1;
+  return best < 0.35 ? { score: best * sep * loud, rel: 'sin relación clara' } : { score: best * sep * loud, rel };
+}
+// Los `max` colores de `palette` ([nombre, hex]) que mejor van con `base`,
+// repartidos entre relaciones para que no salgan todos del mismo tipo.
+function suggestColors(base, palette, max = 10) {
+  const per = {}, out = [];
+  const all = palette.map(([n, h]) => ({ n, h, o: oklch(h), ...harmony(base, h) })).sort((x, y) => y.score - x.score);
+  // no repetir casi el mismo color (dos rojos parecidos de la misma marca)
+  const near = (x, y) => Math.hypot(x.L - y.L, x.A - y.A, x.B - y.B) < 0.09;
+  for (const c of all) {
+    if (out.length >= max || c.score < 0.6) break;
+    if ((per[c.rel] || 0) >= (c.rel === 'neutro + color' ? 7 : 3) || out.some((x) => near(x.o, c.o))) continue;
+    per[c.rel] = (per[c.rel] || 0) + 1; out.push(c);
+  }
+  return out;
+}
 
 // ── Datos ──────────────────────────────────────────────────────────────────
 const FILAMENTS = [
@@ -12,7 +72,19 @@ const FILAMENTS = [
   ['Mostaza', '#E3B23C'], ['Lima', '#B4CC3F'], ['Salvia', '#9DB394'], ['Oliva', '#6E7B3A'], ['Pino', '#24503F'],
   ['Turquesa', '#2C9C95'], ['Cielo', '#7FB6DE'], ['Cobalto', '#2D4FB3'], ['Lavanda', '#A99BD0'], ['Madera', '#A6784C'],
 ];
-const colorName = (hex) => (FILAMENTS.find(([, h]) => h.toLowerCase() === hex.toLowerCase()) || [hex.toUpperCase()])[0];
+// Filamentos reales: la marca y la línea elegidas se recuerdan en el navegador
+// (no forman parte del diseño: en el enlace solo viaja el color).
+const FIL_KEY = 'tiesto.filamento';
+let filPick = { brand: '', line: '' };
+try { const v = JSON.parse(localStorage.getItem(FIL_KEY)); if (v && typeof v.brand === 'string') filPick = { brand: v.brand, line: String(v.line || '') }; } catch {}
+const filLines = () => (FILAMENT_BRANDS.find(([b]) => b === filPick.brand) || [null, []])[1];
+const filColors = () => { const L = filLines(); return (L.find(([l]) => l === filPick.line) || L[0] || [null, []])[1]; };
+const colorName = (hex) => {
+  const h = hex.toLowerCase();
+  const real = filColors().find(([, c]) => '#' + c.toLowerCase() === h);
+  if (real) return `${filPick.brand} · ${real[0]}`;
+  return (FILAMENTS.find(([, c]) => c.toLowerCase() === h) || [hex.toUpperCase()])[0];
+};
 
 const pat = (o) => ({ ...DEFAULTS.pot, ...o });
 const PRESETS = [
@@ -153,7 +225,7 @@ const SECTIONS = [
       S('lidHeight', 'Altura de la tapa', 10, 60, 1, 'mm', { max: (s) => Math.max(10, Math.round(s.height * 0.6)) }),
       S('threadPitch', 'Paso de la rosca', 2, 8, 0.5, 'mm'),
       S('threadStarts', 'Entradas', 1, 4, 1, ''),
-      { kind: 'note', text: (s) => `La tapa se cierra girando en el sentido del reloj y hace tope en el hombro del tarro. Cada vuelta baja ${fmt(s.threadPitch * Math.round(s.threadStarts), 1)} mm. Si no es redonda, queda alineada con el tarro justo al apretar.` },
+      { kind: 'note', text: (s) => `La tapa se cierra girando en el sentido del reloj y se para en un tope de giro justo cuando su forma y su patrón cuadran con los del tarro, sea cual sea la tolerancia de la impresora. Si el dibujo no se repite tantas veces como entradas, la rosca se hace con menos entradas para que no pueda entrar descuadrada.` },
       { kind: 'note', text: 'La holgura de la rosca es la «Holgura del encaje» de Impresión. Antes de imprimir el tarro entero, prueba la tapa con la probeta del cuello.' },
     ],
   },
@@ -396,6 +468,35 @@ function buildItem(it) {
     case 'colors': {
       el = document.createElement('div');
       el.className = 'colors';
+      // selector de marca y línea de filamento, común a las dos piezas
+      const pick = document.createElement('div');
+      pick.className = 'fil-pick';
+      pick.innerHTML = '<span>Filamento real</span><select aria-label="Marca de filamento"></select><select aria-label="Línea de filamento"></select>';
+      const [selB, selL] = pick.querySelectorAll('select');
+      selB.innerHTML = '<option value="">Sin marca</option>' + FILAMENT_BRANDS.map(([b]) => `<option>${b}</option>`).join('');
+      const realGrids = [];
+      const fillReal = () => {
+        const L = filLines();
+        if (!L.some(([l]) => l === filPick.line)) filPick.line = (L.find(([l]) => l === 'PLA') || L[0] || [''])[0];
+        selB.value = filPick.brand;
+        selL.innerHTML = L.map(([l, c]) => `<option value="${l}">${l} (${c.length})</option>`).join('');
+        selL.value = filPick.line; selL.hidden = !L.length;
+        const cols = filColors();
+        for (const [g2, part] of realGrids) {
+          g2.hidden = !cols.length;
+          g2.replaceChildren(...cols.map(([n, c]) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'sw'; b.setAttribute('role', 'radio'); b.title = n; b.setAttribute('aria-label', n);
+            b.style.setProperty('--c', '#' + c); b.dataset.v = '#' + c;
+            b.addEventListener('click', () => { state.colors[part] = '#' + c; commit(); syncAll(); });
+            return b;
+          }));
+        }
+        try { localStorage.setItem(FIL_KEY, JSON.stringify(filPick)); } catch {}
+      };
+      selB.addEventListener('change', () => { filPick = { brand: selB.value, line: '' }; fillReal(); syncAll(); });
+      selL.addEventListener('change', () => { filPick.line = selL.value; fillReal(); syncAll(); });
+      el.appendChild(pick);
       for (const part of ['pot', 'res']) {
         const box = document.createElement('div');
         box.innerHTML = '<div class="color-head"><span></span><em></em></div><div class="swatches" role="radiogroup"></div>';
@@ -415,6 +516,37 @@ function buildItem(it) {
         inp.addEventListener('change', () => commit());
         g.appendChild(cu);
         radioKeys(g);
+        const g2 = document.createElement('div');
+        g2.className = 'swatches real'; g2.setAttribute('role', 'radiogroup'); g2.hidden = true;
+        box.appendChild(g2); realGrids.push([g2, part]);
+        radioKeys(g2);
+        // colores de la paleta a la vista que pegan con el de la otra pieza
+        const other = part === 'pot' ? 'res' : 'pot';
+        const sug = document.createElement('div');
+        sug.className = 'sug';
+        sug.innerHTML = '<span></span><div class="swatches" role="group"></div>';
+        const sugHead = sug.querySelector('span'), sugGrid = sug.querySelector('.swatches');
+        box.appendChild(sug);
+        let sugKey = '';
+        const syncSug = () => {
+          const base = state.colors[other], names = partNames(state);
+          const key = [base, state.colors[part], filPick.brand, filPick.line, names[other]].join('|');
+          if (key === sugKey) return;
+          sugKey = key;
+          const cols = filColors();
+          const list = suggestColors(base, cols.length ? cols.map(([n, c]) => [n, '#' + c]) : FILAMENTS);
+          sug.hidden = !list.length;
+          sugHead.textContent = `Pegan con ${lc(names[other])}`;
+          sugGrid.replaceChildren(...list.map((c) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'sw'; b.title = `${c.n} · ${c.rel}`; b.setAttribute('aria-label', b.title);
+            b.setAttribute('aria-pressed', String(c.h.toLowerCase() === state.colors[part].toLowerCase()));
+            b.style.setProperty('--c', c.h);
+            b.addEventListener('click', () => { state.colors[part] = c.h; commit(); syncAll(); });
+            return b;
+          }));
+        };
+        bindings.push({ sync: syncSug });
         bindings.push({
           sync: () => {
             const label = partNames(state)[part];
@@ -422,7 +554,8 @@ function buildItem(it) {
             g.setAttribute('aria-label', `Color de ${lc(label)}`);
             const cur = state.colors[part].toLowerCase();
             let found = false;
-            g.querySelectorAll('.sw[data-v]').forEach((b) => { const on = b.dataset.v.toLowerCase() === cur; found ||= on; b.setAttribute('aria-checked', String(on)); });
+            g2.setAttribute('aria-label', `Color de ${lc(label)} en filamento ${filPick.brand}`);
+            box.querySelectorAll('.sw[data-v]').forEach((b) => { const on = b.dataset.v.toLowerCase() === cur; found ||= on; b.setAttribute('aria-checked', String(on)); });
             cu.setAttribute('aria-checked', String(!found));
             inp.value = state.colors[part].length === 7 ? state.colors[part] : '#888888';
             em.textContent = colorName(state.colors[part]);
@@ -430,6 +563,23 @@ function buildItem(it) {
         });
         el.appendChild(box);
       }
+      fillReal();
+      // veredicto de la pareja actual
+      const verdict = document.createElement('p');
+      verdict.className = 'pair-fit';
+      bindings.push({
+        sync: () => {
+          const h = harmony(state.colors.pot, state.colors.res);
+          const lvl = h.score >= 0.75 ? ['ok', 'Pegan bien'] : h.score >= 0.5 ? ['mid', 'Pegan regular'] : ['bad', 'No pegan mucho'];
+          verdict.dataset.lvl = lvl[0];
+          verdict.textContent = `${lvl[1]}: ${h.rel}`;
+        },
+      });
+      el.appendChild(verdict);
+      const src = document.createElement('p');
+      src.className = 'note';
+      src.textContent = 'Colores de marca según SpoolmanDB (los que declara cada fabricante). Son orientativos: el tono real cambia con la pantalla, la luz y el lote, y aquí no se ven brillos de seda ni transparencias. Lo de «pegar» sigue las reglas de la rueda de color: es una ayuda, no una ley.';
+      el.appendChild(src);
       break;
     }
     case 'note': {
